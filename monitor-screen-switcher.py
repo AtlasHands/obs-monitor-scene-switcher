@@ -90,8 +90,8 @@ def script_tick(seconds):
     for switcher in switcher_array:
         monitor = switcher.monitor
         # outside of the range
-        not_in_x = (point.x < monitor.x or point.x > monitor.x + monitor.width)
-        not_in_y = (point.y < monitor.y or point.y > monitor.y + monitor.height)
+        not_in_x = (point.x < monitor.x or point.x >= monitor.x + monitor.width)
+        not_in_y = (point.y < monitor.y or point.y >= monitor.y + monitor.height)
         # DEBUG
         # print("In X: {}, In Y: {}".format(not not_in_x, not not_in_y))
         if not_in_x or not_in_y:
