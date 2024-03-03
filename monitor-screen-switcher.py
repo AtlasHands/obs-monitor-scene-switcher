@@ -1,5 +1,6 @@
 import obspython as obs
 import pyautogui
+import json
 from screeninfo import get_monitors
 
 # global variables/definitions
@@ -8,6 +9,84 @@ monitors = []
 switcher_array = []
 # used to only call swapping a scene when needed
 current_scene = ""
+# max monitor width
+max_monitor_width = 1000000
+# max monitor height
+max_monitor_height = 1000000
+# complete add
+complete_add_state = False
+# current virtual monitor
+virtual_monitors = []
+settings_ref = None
+
+add_virtual_names = ["monitor_name", "x_start", "v_width", "v_height", "add_virtual_display"]
+
+class Monitor:
+    def __init__(self, name, x, y, width, height) -> None:
+        self.name = name
+        self.x = x
+        self.y = y
+        self.height = height
+        self.width = width
+        
+
+def set_virtual_monitors():
+    global virtual_monitors, settings_ref
+    v_dict = {}
+    for mon in virtual_monitors:
+        v_dict[mon.name] = {
+            "name": mon.name,
+            "x": mon.x,
+            "y": mon.y,
+            "width": mon.width,
+            "height": mon.height
+        }
+    obs.obs_data_set_string(settings_ref, "virtual_monitors", json.dumps(v_dict))
+
+def get_virtual_monitors():
+    global virtual_monitors, settings_ref
+    vm = obs.obs_data_get_string(settings_ref, "virtual_monitors")
+    try:
+        vm = json.loads(vm)
+    except:
+        return []
+    monitors = []
+    for _,value in vm.items():
+        monitors.append(Monitor(
+            value["name"],
+            value["x"],
+            value["y"],
+            value["width"],
+            value["height"]
+        ))
+    virtual_monitors = monitors
+    return virtual_monitors
+
+def add_virtual(props, data):
+    global adding_virtual, max_monitor_width
+    # have to do this way
+    obs.obs_properties_remove_by_name(props, "add_virtual_display")
+    obs.obs_properties_add_text(props, "monitor_name", "Name", obs.OBS_TEXT_DEFAULT)
+    obs.obs_properties_add_int(props, "x_start", "Start X", 0, max_monitor_width, 1)
+    obs.obs_properties_add_int(props, "v_width", "Width", 0, max_monitor_width, 1)
+    obs.obs_properties_add_int(props, "v_height", "Height", 0, max_monitor_height, 1)
+    
+    obs.obs_properties_add_button(props, "add_virtual_display", "Complete Add", complete_add)
+    return True
+
+def complete_add(props, data):
+    global monitors, add_virtual_names, complete_add_state, settings_ref, virtual_monitors
+    new_virtual = get_virtual_monitor(settings_ref)
+    virtual_monitors.append(new_virtual)
+    monitors = get_monitors()
+    monitors.extend(virtual_monitors)
+    complete_add_state = True
+    for name in add_virtual_names:
+        obs.obs_properties_remove_by_name(props, name)
+    obs.obs_properties_add_button(props, "add_virtual_display", "Add Virtual", add_virtual)
+    set_virtual_monitors()
+    
+    return True
 
 class Switcher:
     def __init__(self, scene, monitor):
@@ -20,13 +99,18 @@ def script_description():
 
 # setup defaults
 def script_defaults(settings):
+    global settings_ref
+    settings_ref = settings
+    get_virtual_monitors()
     # make all switching enabled by default
     for i in range(len(monitors)):
         obs.obs_data_set_default_bool(settings, "switcher_enabled_{}".format(i), True)
 
+
+
 # Called to display the properties GUI
 def script_properties():
-    global monitors
+    global monitors, adding_virtual
     # setup the properties
     props = obs.obs_properties_create()
     # for each monitor, set a scene that you want to move to
@@ -46,15 +130,34 @@ def script_properties():
             obs.obs_source_release(scene)
         # iterate through the monitors, adding them as options to the array
         for j in range(len(monitors)):
-            obs.obs_property_list_add_string(monitor_list, "Monitor {}".format(j+1), str(j))
+            obs.obs_property_list_add_string(monitor_list, "Monitor {} - {}".format(j+1, monitors[j].name), str(j))
 
+    # add button to create virtual monitor
+    obs.obs_properties_add_button(props, "add_virtual_display", "Add Virtual", add_virtual)
+    
     return props
+
+
+def get_virtual_monitor(settings):
+    monitor = Monitor(
+        obs.obs_data_get_string(settings, "monitor_name"),
+        obs.obs_data_get_int(settings, "x_start"),
+        0,
+        obs.obs_data_get_int(settings, "v_width"),
+        obs.obs_data_get_int(settings, "v_height")
+    )
+    return monitor
+    
 
 # Called after change of settings including once after script load
 def script_update(settings):
-    global monitors, switcher_array
+    global monitors, switcher_array, settings_ref
     # get the monitors
+    
+    settings_ref = settings
+
     monitors = get_monitors()
+    monitors.extend(virtual_monitors)
     # sort by the x value, from just testing at home, x value dictates left to right
     monitors.sort(key=lambda m: m.x)
     switcher_array = []
